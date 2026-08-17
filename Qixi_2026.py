@@ -12,7 +12,7 @@ import random
 
 pygame.init()
 screen = pygame.display.set_mode((1000, 700))
-pygame.display.set_caption("爱心与玫瑰")
+pygame.display.set_caption("To tt")
 clock = pygame.time.Clock()
 
 # ── 爱心参数方程（与 heart_shaped.py 相同）──
@@ -230,6 +230,36 @@ class Spark:
         pygame.draw.circle(surf, (*self.color, alpha), (int(self.x), int(self.y)), r)
 
 
+class Snowflake:
+    """诗句浮现时的雪花：稀疏、慢飘、左右轻摆、呼吸式明暗"""
+    def __init__(self):
+        self.reset(from_top=False)
+
+    def reset(self, from_top):
+        self.base_x = random.uniform(0, screen.get_width())
+        self.y = random.uniform(-30, 0) if from_top else random.uniform(0, screen.get_height())
+        self.fall = random.uniform(14, 30)          # 下落速度 px/s
+        self.sway_amp = random.uniform(10, 26)      # 左右摆动幅度
+        self.sway_freq = random.uniform(0.4, 0.9)   # 摆动频率
+        self.phase = random.uniform(0, math.pi * 2)
+        self.size = random.uniform(1.5, 3.2)
+        self.twinkle = random.uniform(0, math.pi * 2)
+        self.alpha = random.randint(80, 160)
+
+    def update(self, dt):
+        self.y += self.fall * dt
+        self.phase += self.sway_freq * dt
+        self.x = self.base_x + math.sin(self.phase) * self.sway_amp
+        self.twinkle += 1.5 * dt
+        if self.y > screen.get_height() + 20:       # 飘出底部 → 回到顶部
+            self.reset(from_top=True)
+
+    def draw(self, surf):
+        a = int(self.alpha * (0.7 + 0.3 * math.sin(self.twinkle)))   # 呼吸式明暗
+        pygame.draw.circle(surf, (228, 232, 248, a), (int(self.x), int(self.y)), max(1, int(self.size)))
+        pygame.draw.circle(surf, (228, 232, 248, a // 4), (int(self.x), int(self.y)), max(2, int(self.size * 2.2)))
+
+
 # ── 状态机 ──
 # draw_heart → hold_heart → bloom_heart → draw_rose → hold_rose → bloom_rose → firework → poem_wait → poem
 state = "draw_heart"
@@ -247,6 +277,11 @@ rockets = []          # 升空中的火箭
 sparks = []           # 爆炸后的火花
 next_launch = 0.0     # 下一次发射倒计时
 fx_surf = pygame.Surface(screen.get_size(), pygame.SRCALPHA)   # 烟花渲染层（保留半透明）
+
+# 雪花（诗句浮现时飘动，密度低）
+SNOW_COUNT = 50
+snowflakes = []
+snow_surf = pygame.Surface(screen.get_size(), pygame.SRCALPHA)   # 雪花渲染层
 
 # 结尾诗句：莎士比亚《十四行诗》第29首 结尾两句
 POEM_LINES = [
@@ -372,6 +407,7 @@ while True:
         if state_time >= FIREWORK_DURATION and not rockets and not sparks:
             state = "poem_wait"
             state_time = 0
+            snowflakes = [Snowflake() for _ in range(SNOW_COUNT)]   # 雪花登场
 
     elif state == "poem_wait":
         if state_time >= 1.0:              # 停顿 1 秒
@@ -383,6 +419,11 @@ while True:
         p.update(dt)
     if state in ("bloom_heart", "bloom_rose"):
         particles = [p for p in particles if not p.dead]
+
+    # ── 更新雪花（诗句浮现阶段）──
+    if state in ("poem_wait", "poem"):
+        for fl in snowflakes:
+            fl.update(dt)
 
     # ── 绘制 ──
     screen.fill((12, 8, 18))
@@ -415,6 +456,13 @@ while True:
         sign_rect.topright = (last_rect.right, last_rect.bottom + 18)
         screen.blit(sign_text, sign_rect)
 
+    # 雪花：轻柔飘落（普通贴图，不用叠加发光，保持素雅）
+    if state in ("poem_wait", "poem"):
+        snow_surf.fill((0, 0, 0, 0))
+        for fl in snowflakes:
+            fl.draw(snow_surf)
+        screen.blit(snow_surf, (0, 0))
+
     # 画笔光标：每个点集一支笔，同步推进
     if state in ("draw_heart", "draw_rose") and drawn_count > 0:
         brush = pygame.Surface((40, 40), pygame.SRCALPHA)
@@ -423,18 +471,5 @@ while True:
         for pts in current_sets:
             bx, by = pts[min(drawn_count, len(pts) - 1)]
             screen.blit(brush, (int(bx) - 20, int(by) - 20))
-
-    # 提示文字
-    font = pygame.font.SysFont(None, 30)
-    tip = {"draw_heart": "画笔绘制爱心…",
-           "hold_heart": "爱心成形，即将绽放…",
-           "bloom_heart": "爱心绽放 ✿",
-           "draw_rose": "画笔绘制6朵玫瑰…",
-           "hold_rose": "玫瑰成形，即将绽放…",
-           "bloom_rose": "玫瑰绽放 ✿",
-           "firework": "烟花表演 ✨",
-           "poem_wait": "",
-           "poem": ""}[state]
-    screen.blit(font.render(tip, True, (220, 200, 220)), (30, 30))
 
     pygame.display.flip()
